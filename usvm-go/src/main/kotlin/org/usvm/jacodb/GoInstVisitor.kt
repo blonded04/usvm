@@ -1,5 +1,7 @@
 package org.usvm.jacodb
 
+import io.ksmt.expr.KBitVec32Value
+import io.ksmt.expr.KConst
 import io.ksmt.utils.asExpr
 import io.ksmt.utils.cast
 import org.jacodb.api.common.cfg.CommonAssignInst
@@ -19,6 +21,7 @@ import org.jacodb.go.api.GoInst
 import org.jacodb.go.api.GoInstVisitor
 import org.jacodb.go.api.GoJumpInst
 import org.jacodb.go.api.GoMapUpdateInst
+import org.jacodb.go.api.GoMethod
 import org.jacodb.go.api.GoNullInst
 import org.jacodb.go.api.GoPanicInst
 import org.jacodb.go.api.GoReturnInst
@@ -28,11 +31,14 @@ import org.jacodb.go.api.GoStoreInst
 import org.usvm.UExpr
 import org.usvm.USort
 import org.usvm.jacodb.interpreter.GoStepScope
+import org.usvm.memory.URegisterStackLValue
+import org.usvm.statistics.ApplicationGraph
 
 class GoInstVisitor(
     private val ctx: GoContext,
     private val scope: GoStepScope,
     private val exprVisitor: GoExprVisitor<UExpr<out USort>>,
+    private val applicationGraph: ApplicationGraph<GoMethod, GoInst>,
 ) : GoInstVisitor<GoInst> {
     override fun visitGoJumpInst(inst: GoJumpInst): GoInst {
         return inst.location.method.blocks[inst.target.index].insts[0]
@@ -64,7 +70,12 @@ class GoInstVisitor(
     }
 
     override fun visitGoPanicInst(inst: GoPanicInst): GoInst {
-        TODO("Not yet implemented")
+        val value = inst.throwable.accept(exprVisitor)
+
+        scope.doWithState {
+            panic(value, inst.throwable.type)
+        }
+        return inst
     }
 
     override fun visitGoGoInst(inst: GoGoInst): GoInst {
@@ -72,11 +83,17 @@ class GoInstVisitor(
     }
 
     override fun visitGoDeferInst(inst: GoDeferInst): GoInst {
-        val method = inst.func.accept(exprVisitor)
-        return GoNullInst(inst.location.method)
-//        scope.doWithState {
-//            data.addDeferredCall(lastEnteredMethod, GoCall())
-//        }
+        val name = (inst.func.accept(exprVisitor) as KConst).toString()
+        val method = ctx.getClosure(name)
+
+        val parameters = inst.args.map { it.accept(exprVisitor) }.toTypedArray()
+        val call = GoCall(method, applicationGraph.entryPoints(method).first(), parameters)
+        ctx.setMethodInfo(method, parameters)
+
+        scope.doWithState {
+            data.addDeferredCall(lastEnteredMethod, call)
+        }
+        return next(inst)
     }
 
     override fun visitGoSendInst(inst: GoSendInst): GoInst {
@@ -124,10 +141,34 @@ class GoInstVisitor(
     }
 
     override fun visitGoAssignInst(inst: GoAssignInst): GoInst {
-        TODO("Not yet implemented")
+        val method = scope.calcOnState { lastEnteredMethod }
+
+        val index = (inst.lhv.accept(exprVisitor) as KBitVec32Value).intValue
+        ctx.unsetRegister(method, index)
+
+        val rvalue = inst.rhv.accept(exprVisitor)
+        val sort = rvalue.sort
+
+        if (rvalue is KConst && rvalue.toString() == "GoCall") {
+            ctx.setRegister(method, index)
+            return GoNullInst(inst.location.method)
+        }
+
+        scope.doWithState {
+            memory.write(URegisterStackLValue(sort, index), rvalue.asExpr(sort), ctx.trueExpr)
+        }
+        ctx.setRegister(method, index)
+
+        return next(inst)
     }
 
     override fun visitGoCallInst(inst: GoCallInst): GoInst {
         TODO("Not yet implemented")
+    }
+
+    private fun next(inst: GoInst): GoInst {
+        val fg = inst.location.method.flowGraph()
+        val a = fg.next(inst)
+        return applicationGraph.successors(inst).firstOrNull() ?: GoNullInst(inst.location.method)
     }
 }

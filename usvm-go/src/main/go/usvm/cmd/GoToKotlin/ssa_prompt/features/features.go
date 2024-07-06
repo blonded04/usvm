@@ -9,7 +9,7 @@ func Max2(a, b int) int {
 
 func Max2Improved(a, b int) int {
 	c := -1
-	if b > a {
+	if b > a && b > 5 && a > 3 {
 		c = b
 	}
 	if b < a {

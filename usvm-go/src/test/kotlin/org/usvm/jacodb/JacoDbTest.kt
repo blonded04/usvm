@@ -9,6 +9,7 @@ import org.usvm.jacodb.gen.ssa_Program
 import java.io.File
 import java.util.zip.GZIPInputStream
 import kotlin.system.measureTimeMillis
+import kotlin.time.Duration
 
 class JacoDbTest {
     @Test
@@ -45,7 +46,7 @@ class JacoDbTest {
 
         println(stopwatch)
 
-        val machine = GoMachine(project, UMachineOptions(listOf(PathSelectionStrategy.FORK_DEPTH)))
+        val machine = GoMachine(project, UMachineOptions(listOf(PathSelectionStrategy.FORK_DEPTH), timeout = Duration.INFINITE))
         println(machine.analyzeAndResolve(project.methods.find { it.metName == name }!!))
     }
 }

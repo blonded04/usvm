@@ -1,7 +1,12 @@
 package org.usvm.jacodb.type
 
+import org.jacodb.go.api.ArrayType
 import org.jacodb.go.api.GoType
 import org.jacodb.go.api.InterfaceType
+import org.jacodb.go.api.MapType
+import org.jacodb.go.api.NamedType
+import org.jacodb.go.api.SliceType
+import org.jacodb.go.api.StructType
 import org.usvm.types.USupportTypeStream
 import org.usvm.types.UTypeStream
 import org.usvm.types.UTypeSystem
@@ -21,12 +26,14 @@ class GoTypeSystem(
         return emptySequence()
     }
 
-    override fun isInstantiable(type: GoType): Boolean {
-        return false
+    override fun isInstantiable(type: GoType): Boolean = when(type) {
+        is StructType, is MapType, is SliceType, is ArrayType -> true
+        is NamedType -> isInstantiable(type.underlyingType)
+        else -> false
     }
 
     override fun isFinal(type: GoType): Boolean {
-        return false
+        return type is InterfaceType
     }
 
     override fun hasCommonSubtype(type: GoType, types: Collection<GoType>): Boolean {
