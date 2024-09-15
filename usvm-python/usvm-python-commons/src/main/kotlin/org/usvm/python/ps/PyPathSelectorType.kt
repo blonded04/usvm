@@ -15,4 +15,5 @@ enum class PyPathSelectorType {
     DelayedForkByInstructionPriorityNumberOfInstructionsDfs, // passes tests
     DelayedForkByInstructionPriorityNumberOfInstructionsRandomTree, // passes tests
     DelayedForkByInstructionPriorityNumberOfInstructionsRandomTreePlusTypeRating, // passes tests
+    ConcreteTypeCoverage, // doesn't yet pass tests
 }

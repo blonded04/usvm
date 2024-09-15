@@ -4,17 +4,12 @@ import org.usvm.UPathSelector
 import org.usvm.language.PyInstruction
 import org.usvm.machine.DelayedFork
 import org.usvm.machine.PyState
-import org.usvm.machine.ps.strategies.DelayedForkGraphCreation
-import org.usvm.machine.ps.strategies.DelayedForkGraphInnerVertex
-import org.usvm.machine.ps.strategies.DelayedForkGraphRootVertex
-import org.usvm.machine.ps.strategies.DelayedForkState
-import org.usvm.machine.ps.strategies.MakeDelayedFork
-import org.usvm.machine.ps.strategies.PyPathSelectorAction
+import org.usvm.machine.ps.strategies.*
 import kotlin.random.Random
 
 fun makeDelayedForkByInstructionPriorityStrategy(
     random: Random,
-): RandomizedPriorityActionStrategy<DelayedForkState, DelayedForkByInstructionGraph> =
+): RandomizedPriorityActionStrategy =
     RandomizedPriorityActionStrategy(
         random,
         listOf(
@@ -29,7 +24,7 @@ fun makeDelayedForkByInstructionPriorityStrategy(
 
 fun makeDelayedForkByInstructionWeightedStrategy(
     random: Random,
-): WeightedActionStrategy<DelayedForkState, DelayedForkByInstructionGraph> =
+): WeightedActionStrategy =
     WeightedActionStrategy(
         random,
         listOf(
@@ -42,10 +37,10 @@ fun makeDelayedForkByInstructionWeightedStrategy(
         baselineWeights
     )
 
-sealed class DelayedForkByInstructionAction : Action<DelayedForkState, DelayedForkByInstructionGraph> {
+sealed class DelayedForkByInstructionAction : Action {
     protected fun findAvailableInstructions(
         graph: DelayedForkByInstructionGraph,
-        isAvailable: (DelayedForkGraphInnerVertex<DelayedForkState>) -> Boolean,
+        isAvailable: (DelayedForkGraphInnerVertex) -> Boolean,
     ): List<PyInstruction> =
         graph.nodesByInstruction.entries.filter { (_, nodes) ->
             nodes.any { it in graph.aliveNodesAtDistanceOne && isAvailable(it) }
@@ -55,9 +50,9 @@ sealed class DelayedForkByInstructionAction : Action<DelayedForkState, DelayedFo
 
     protected fun chooseDelayedFork(
         graph: DelayedForkByInstructionGraph,
-        isAvailable: (DelayedForkGraphInnerVertex<DelayedForkState>) -> Boolean,
+        isAvailable: (DelayedForkGraphInnerVertex) -> Boolean,
         random: Random,
-    ): DelayedForkGraphInnerVertex<DelayedForkState> {
+    ): DelayedForkGraphInnerVertex {
         val availableInstructions = findAvailableInstructions(graph, isAvailable)
         val size = availableInstructions.size
         require(size > 0)
@@ -73,46 +68,46 @@ sealed class DelayedForkByInstructionAction : Action<DelayedForkState, DelayedFo
 }
 
 data object ServeNewDelayedForkByInstruction : DelayedForkByInstructionAction() {
-    private val predicate = { node: DelayedForkGraphInnerVertex<DelayedForkState> ->
+    private val predicate = { node: DelayedForkGraphInnerVertex ->
         node.delayedForkState.successfulTypes.isEmpty() && node.delayedForkState.size > 0
     }
 
-    override fun isAvailable(graph: DelayedForkByInstructionGraph): Boolean =
-        findAvailableInstructions(graph, predicate).isNotEmpty()
+    override fun isAvailable(graph: DelayedForkGraph): Boolean =
+        findAvailableInstructions((graph as DelayedForkByInstructionGraph), predicate).isNotEmpty()
 
     override fun makeAction(
-        graph: DelayedForkByInstructionGraph,
+        graph: DelayedForkGraph,
         random: Random,
-    ): PyPathSelectorAction<DelayedForkState> =
-        MakeDelayedFork(chooseDelayedFork(graph, predicate, random))
+    ): PyPathSelectorAction =
+        MakeDelayedFork(chooseDelayedFork((graph as DelayedForkByInstructionGraph), predicate, random))
 }
 
 data object ServeOldDelayedForkByInstruction : DelayedForkByInstructionAction() {
-    private val predicate = { node: DelayedForkGraphInnerVertex<DelayedForkState> ->
+    private val predicate = { node: DelayedForkGraphInnerVertex ->
         node.delayedForkState.successfulTypes.isNotEmpty() && node.delayedForkState.size > 0
     }
 
-    override fun isAvailable(graph: DelayedForkByInstructionGraph): Boolean =
-        findAvailableInstructions(graph, predicate).isNotEmpty()
+    override fun isAvailable(graph: DelayedForkGraph): Boolean =
+        findAvailableInstructions((graph as DelayedForkByInstructionGraph), predicate).isNotEmpty()
 
     override fun makeAction(
-        graph: DelayedForkByInstructionGraph,
+        graph: DelayedForkGraph,
         random: Random,
-    ): PyPathSelectorAction<DelayedForkState> =
-        MakeDelayedFork(chooseDelayedFork(graph, predicate, random))
+    ): PyPathSelectorAction =
+        MakeDelayedFork(chooseDelayedFork((graph as DelayedForkByInstructionGraph), predicate, random))
 }
 
 class DelayedForkByInstructionGraph(
     basePathSelectorCreation: () -> UPathSelector<PyState>,
-    root: DelayedForkGraphRootVertex<DelayedForkState>,
+    root: DelayedForkGraphRootVertex,
 ) : BaselineDelayedForkGraph(basePathSelectorCreation, root) {
     internal val nodesByInstruction =
-        mutableMapOf<PyInstruction, MutableSet<DelayedForkGraphInnerVertex<DelayedForkState>>>()
+        mutableMapOf<PyInstruction, MutableSet<DelayedForkGraphInnerVertex>>()
 
-    override fun addVertex(df: DelayedFork, vertex: DelayedForkGraphInnerVertex<DelayedForkState>) {
+    override fun addVertex(df: DelayedFork, vertex: DelayedForkGraphInnerVertex) {
         super.addVertex(df, vertex)
         val set = nodesByInstruction[vertex.delayedFork.state.pathNode.statement]
-            ?: mutableSetOf<DelayedForkGraphInnerVertex<DelayedForkState>>().also {
+            ?: mutableSetOf<DelayedForkGraphInnerVertex>().also {
                 nodesByInstruction[vertex.delayedFork.state.pathNode.statement] = it
             }
         set.add(vertex)
@@ -121,12 +116,12 @@ class DelayedForkByInstructionGraph(
 
 class DelayedForkByInstructionGraphCreation(
     private val basePathSelectorCreation: () -> UPathSelector<PyState>,
-) : DelayedForkGraphCreation<DelayedForkState, DelayedForkByInstructionGraph> {
+) : DelayedForkGraphCreation {
     override fun createEmptyDelayedForkState(): DelayedForkState =
         DelayedForkState()
 
     override fun createOneVertexGraph(
-        root: DelayedForkGraphRootVertex<DelayedForkState>,
+        root: DelayedForkGraphRootVertex,
     ): DelayedForkByInstructionGraph =
         DelayedForkByInstructionGraph(basePathSelectorCreation, root)
 }

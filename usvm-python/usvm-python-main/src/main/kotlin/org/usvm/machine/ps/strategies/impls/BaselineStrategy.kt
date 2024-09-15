@@ -4,17 +4,7 @@ import mu.KLogging
 import org.usvm.UPathSelector
 import org.usvm.machine.DelayedFork
 import org.usvm.machine.PyState
-import org.usvm.machine.ps.strategies.DelayedForkGraph
-import org.usvm.machine.ps.strategies.DelayedForkGraphCreation
-import org.usvm.machine.ps.strategies.DelayedForkGraphInnerVertex
-import org.usvm.machine.ps.strategies.DelayedForkGraphRootVertex
-import org.usvm.machine.ps.strategies.DelayedForkGraphVertex
-import org.usvm.machine.ps.strategies.DelayedForkState
-import org.usvm.machine.ps.strategies.DelayedForkStrategy
-import org.usvm.machine.ps.strategies.MakeDelayedFork
-import org.usvm.machine.ps.strategies.Peek
-import org.usvm.machine.ps.strategies.PyPathSelectorAction
-import org.usvm.machine.ps.strategies.TypeRating
+import org.usvm.machine.ps.strategies.*
 import kotlin.random.Random
 
 // For now, these values were chosen in an arbitrary way.
@@ -34,7 +24,7 @@ val baselineWeights = // listOf(100.0, 0.6, 0.35, 0.04, 0.01)
 
 fun makeBaselinePriorityActionStrategy(
     random: Random,
-): RandomizedPriorityActionStrategy<DelayedForkState, BaselineDelayedForkGraph> =
+): RandomizedPriorityActionStrategy =
     RandomizedPriorityActionStrategy(
         random,
         listOf(
@@ -49,7 +39,7 @@ fun makeBaselinePriorityActionStrategy(
 
 fun makeBaselineWeightedActionStrategy(
     random: Random,
-): WeightedActionStrategy<DelayedForkState, BaselineDelayedForkGraph> =
+): WeightedActionStrategy =
     WeightedActionStrategy(
         random,
         listOf(
@@ -62,11 +52,11 @@ fun makeBaselineWeightedActionStrategy(
         baselineWeights
     )
 
-sealed class BaselineAction : Action<DelayedForkState, BaselineDelayedForkGraph> {
+sealed class BaselineAction : Action {
     protected fun chooseAvailableVertex(
-        available: List<DelayedForkGraphInnerVertex<DelayedForkState>>,
+        available: List<DelayedForkGraphInnerVertex>,
         random: Random,
-    ): DelayedForkGraphInnerVertex<DelayedForkState> {
+    ): DelayedForkGraphInnerVertex {
         require(available.isNotEmpty())
         val idx = random.nextInt(0, available.size)
         return available[idx]
@@ -74,36 +64,36 @@ sealed class BaselineAction : Action<DelayedForkState, BaselineDelayedForkGraph>
 }
 
 object PeekExecutedStateWithConcreteType : BaselineAction() {
-    override fun isAvailable(graph: BaselineDelayedForkGraph): Boolean =
-        !graph.pathSelectorForExecutedStatesWithConcreteTypes.isEmpty()
+    override fun isAvailable(graph: DelayedForkGraph): Boolean =
+        !(graph as BaselineDelayedForkGraph).pathSelectorForExecutedStatesWithConcreteTypes.isEmpty()
 
     override fun makeAction(
-        graph: BaselineDelayedForkGraph,
+        graph: DelayedForkGraph,
         random: Random,
-    ): PyPathSelectorAction<DelayedForkState> =
-        Peek(graph.pathSelectorForExecutedStatesWithConcreteTypes)
+    ): PyPathSelectorAction =
+        Peek((graph as BaselineDelayedForkGraph).pathSelectorForExecutedStatesWithConcreteTypes)
 }
 
 object PeekFromRoot : BaselineAction() {
-    override fun isAvailable(graph: BaselineDelayedForkGraph): Boolean =
-        !graph.pathSelectorWithoutDelayedForks.isEmpty()
+    override fun isAvailable(graph: DelayedForkGraph): Boolean =
+        !(graph as BaselineDelayedForkGraph).pathSelectorWithoutDelayedForks.isEmpty()
 
-    override fun makeAction(graph: BaselineDelayedForkGraph, random: Random): PyPathSelectorAction<DelayedForkState> =
-        Peek(graph.pathSelectorWithoutDelayedForks)
+    override fun makeAction(graph: DelayedForkGraph, random: Random): PyPathSelectorAction =
+        Peek((graph as BaselineDelayedForkGraph).pathSelectorWithoutDelayedForks)
 
     override fun toString(): String = "PeekFromRoot"
 }
 
 object ServeNewDelayedFork : BaselineAction() {
-    private val predicate = { node: DelayedForkGraphInnerVertex<DelayedForkState> ->
+    private val predicate = { node: DelayedForkGraphInnerVertex ->
         node.delayedForkState.successfulTypes.isEmpty() && node.delayedForkState.size > 0
     }
 
-    override fun isAvailable(graph: BaselineDelayedForkGraph): Boolean =
-        graph.aliveNodesAtDistanceOne.any(predicate)
+    override fun isAvailable(graph: DelayedForkGraph): Boolean =
+        (graph as BaselineDelayedForkGraph).aliveNodesAtDistanceOne.any(predicate)
 
-    override fun makeAction(graph: BaselineDelayedForkGraph, random: Random): PyPathSelectorAction<DelayedForkState> {
-        val available = graph.aliveNodesAtDistanceOne.filter(predicate)
+    override fun makeAction(graph: DelayedForkGraph, random: Random): PyPathSelectorAction {
+        val available = (graph as BaselineDelayedForkGraph).aliveNodesAtDistanceOne.filter(predicate)
         return MakeDelayedFork(chooseAvailableVertex(available, random))
     }
 
@@ -111,33 +101,33 @@ object ServeNewDelayedFork : BaselineAction() {
 }
 
 object PeekFromStateWithDelayedFork : BaselineAction() {
-    override fun isAvailable(graph: BaselineDelayedForkGraph): Boolean =
-        !graph.pathSelectorWithDelayedForks.isEmpty()
+    override fun isAvailable(graph: DelayedForkGraph): Boolean =
+        !(graph as BaselineDelayedForkGraph).pathSelectorWithDelayedForks.isEmpty()
 
-    override fun makeAction(graph: BaselineDelayedForkGraph, random: Random): PyPathSelectorAction<DelayedForkState> {
-        return Peek(graph.pathSelectorWithDelayedForks)
+    override fun makeAction(graph: DelayedForkGraph, random: Random): PyPathSelectorAction {
+        return Peek((graph as BaselineDelayedForkGraph).pathSelectorWithDelayedForks)
     }
 
     override fun toString(): String = "PeekFromStateWithDelayedFork"
 }
 
 object ServeOldDelayedFork : BaselineAction() {
-    private val predicate = { node: DelayedForkGraphInnerVertex<DelayedForkState> ->
+    private val predicate = { node: DelayedForkGraphInnerVertex ->
         node.delayedForkState.successfulTypes.isNotEmpty() && node.delayedForkState.size > 0
     }
 
-    override fun isAvailable(graph: BaselineDelayedForkGraph): Boolean =
-        graph.aliveNodesAtDistanceOne.any(predicate)
+    override fun isAvailable(graph: DelayedForkGraph): Boolean =
+        (graph as BaselineDelayedForkGraph).aliveNodesAtDistanceOne.any(predicate)
 
-    override fun makeAction(graph: BaselineDelayedForkGraph, random: Random): PyPathSelectorAction<DelayedForkState> {
-        val available = graph.aliveNodesAtDistanceOne.filter(predicate)
+    override fun makeAction(graph: DelayedForkGraph, random: Random): PyPathSelectorAction {
+        val available = (graph as BaselineDelayedForkGraph).aliveNodesAtDistanceOne.filter(predicate)
         return MakeDelayedFork(chooseAvailableVertex(available, random))
     }
 
     override fun toString(): String = "ServeOldDelayedFork"
 }
 
-class BaselineDelayedForkStrategy : DelayedForkStrategy<DelayedForkState> {
+class BaselineDelayedForkStrategy : DelayedForkStrategy {
     private var lastIdx = -1
     override fun chooseTypeRating(state: DelayedForkState): TypeRating {
         require(state.size > 0) {
@@ -151,25 +141,25 @@ class BaselineDelayedForkStrategy : DelayedForkStrategy<DelayedForkState> {
 
 class BaselineDFGraphCreation(
     private val basePathSelectorCreation: () -> UPathSelector<PyState>,
-) : DelayedForkGraphCreation<DelayedForkState, BaselineDelayedForkGraph> {
+) : DelayedForkGraphCreation {
     override fun createEmptyDelayedForkState(): DelayedForkState =
         DelayedForkState()
 
-    override fun createOneVertexGraph(root: DelayedForkGraphRootVertex<DelayedForkState>): BaselineDelayedForkGraph =
+    override fun createOneVertexGraph(root: DelayedForkGraphRootVertex): BaselineDelayedForkGraph =
         BaselineDelayedForkGraph(basePathSelectorCreation, root)
 }
 
 open class BaselineDelayedForkGraph(
     basePathSelectorCreation: () -> UPathSelector<PyState>,
-    root: DelayedForkGraphRootVertex<DelayedForkState>,
-) : DelayedForkGraph<DelayedForkState>(root) {
+    root: DelayedForkGraphRootVertex,
+) : DelayedForkGraph(root) {
 
     internal val pathSelectorWithoutDelayedForks = basePathSelectorCreation()
     internal val pathSelectorWithDelayedForks = basePathSelectorCreation()
     internal val pathSelectorForExecutedStatesWithConcreteTypes = basePathSelectorCreation()
-    internal val aliveNodesAtDistanceOne = mutableSetOf<DelayedForkGraphInnerVertex<DelayedForkState>>()
+    internal val aliveNodesAtDistanceOne = mutableSetOf<DelayedForkGraphInnerVertex>()
 
-    override fun addVertex(df: DelayedFork, vertex: DelayedForkGraphInnerVertex<DelayedForkState>) {
+    override fun addVertex(df: DelayedFork, vertex: DelayedForkGraphInnerVertex) {
         super.addVertex(df, vertex)
         if (vertex.parent == root) {
             logger.debug("Adding node to aliveNodesAtDistanceOne")
@@ -177,7 +167,7 @@ open class BaselineDelayedForkGraph(
         }
     }
 
-    override fun updateVertex(vertex: DelayedForkGraphInnerVertex<DelayedForkState>) {
+    override fun updateVertex(vertex: DelayedForkGraphInnerVertex) {
         if (vertex.delayedForkState.isDead) {
             aliveNodesAtDistanceOne.remove(vertex)
         }
@@ -187,11 +177,12 @@ open class BaselineDelayedForkGraph(
         pathSelectorForExecutedStatesWithConcreteTypes.add(listOf(state))
     }
 
-    override fun addStateToVertex(vertex: DelayedForkGraphVertex<DelayedForkState>, state: PyState) {
+    override fun addStateToVertex(vertex: DelayedForkGraphVertex, state: PyState) {
         when (vertex) {
             is DelayedForkGraphRootVertex -> {
                 pathSelectorWithoutDelayedForks.add(listOf(state))
             }
+
             is DelayedForkGraphInnerVertex -> {
                 pathSelectorWithDelayedForks.add(listOf(state))
             }

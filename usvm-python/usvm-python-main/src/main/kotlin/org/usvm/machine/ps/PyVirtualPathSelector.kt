@@ -25,11 +25,11 @@ import org.usvm.machine.types.MockType
 import org.usvm.machine.types.PythonType
 import org.usvm.types.TypesResult
 
-class PyVirtualPathSelector<DFState : DelayedForkState, DFGraph : DelayedForkGraph<DFState>>(
+class PyVirtualPathSelector(
     private val ctx: PyContext,
-    private val actionStrategy: PyPathSelectorActionStrategy<DFState, DFGraph>,
-    private val delayedForkStrategy: DelayedForkStrategy<DFState>,
-    private val graphCreation: DelayedForkGraphCreation<DFState, DFGraph>,
+    private val actionStrategy: PyPathSelectorActionStrategy,
+    private val delayedForkStrategy: DelayedForkStrategy,
+    private val graphCreation: DelayedForkGraphCreation,
     private val newStateObserver: NewStateObserver,
 ) : UPathSelector<PyState> {
     private val graph = graphCreation.createOneVertexGraph(DelayedForkGraphRootVertex())
@@ -81,7 +81,7 @@ class PyVirtualPathSelector<DFState : DelayedForkState, DFGraph : DelayedForkGra
     }
 
     private fun addDelayedForkVertices(state: PyState) {
-        var parent: DelayedForkGraphVertex<DFState> = graph.root
+        var parent: DelayedForkGraphVertex = graph.root
         state.delayedForks.forEach { delayedFork ->
             val vertex = graph.getVertexByDelayedFork(delayedFork) ?: let {
                 val dfState = graphCreation.createEmptyDelayedForkState()
@@ -133,7 +133,7 @@ class PyVirtualPathSelector<DFState : DelayedForkState, DFGraph : DelayedForkGra
         return peekCache
     }
 
-    private fun generateStateWithConcreteType(delayedFork: DelayedFork, delayedForkState: DFState): PyState? = with(
+    private fun generateStateWithConcreteType(delayedFork: DelayedFork, delayedForkState: DelayedForkState): PyState? = with(
         ctx
     ) {
         val typeRating = delayedForkStrategy.chooseTypeRating(delayedForkState)
