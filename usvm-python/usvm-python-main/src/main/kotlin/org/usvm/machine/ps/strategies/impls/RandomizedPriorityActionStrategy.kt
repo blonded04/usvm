@@ -7,16 +7,16 @@ import org.usvm.machine.ps.strategies.PyPathSelectorAction
 import org.usvm.machine.ps.strategies.PyPathSelectorActionStrategy
 import kotlin.random.Random
 
-class RandomizedPriorityActionStrategy<DFState : DelayedForkState, DFGraph : DelayedForkGraph<DFState>>(
+class RandomizedPriorityActionStrategy(
     private val random: Random,
-    private val actions: List<Action<DFState, DFGraph>>,
+    private val actions: List<Action>,
     private val probabilities: List<Double>,
-) : PyPathSelectorActionStrategy<DFState, DFGraph> {
+) : PyPathSelectorActionStrategy {
     init {
         require(actions.size == probabilities.size)
     }
-    override fun chooseAction(graph: DFGraph): PyPathSelectorAction<DFState>? {
-        val availableActions: List<Pair<Action<DFState, DFGraph>, Double>> = actions.mapIndexedNotNull { idx, action ->
+    override fun chooseAction(graph: DelayedForkGraph): PyPathSelectorAction? {
+        val availableActions: List<Pair<Action, Double>> = actions.mapIndexedNotNull { idx, action ->
             if (!action.isAvailable(graph)) {
                 return@mapIndexedNotNull null
             }
@@ -31,7 +31,7 @@ class RandomizedPriorityActionStrategy<DFState : DelayedForkState, DFGraph : Del
         return action.makeAction(graph, random)
     }
 
-    private fun makeChoice(availableActions: List<Pair<Action<DFState, DFGraph>, Double>>): Action<DFState, DFGraph> {
+    private fun makeChoice(availableActions: List<Pair<Action, Double>>): Action {
         availableActions.dropLast(1).forEach {
             val coin = random.nextDouble()
             if (coin < it.second) {
