@@ -9,16 +9,7 @@ import org.usvm.machine.PyContext
 import org.usvm.machine.PyState
 import org.usvm.machine.model.GenerateNewFromPathConstraints
 import org.usvm.machine.model.toPyModel
-import org.usvm.machine.ps.strategies.DelayedForkGraph
-import org.usvm.machine.ps.strategies.DelayedForkGraphCreation
-import org.usvm.machine.ps.strategies.DelayedForkGraphInnerVertex
-import org.usvm.machine.ps.strategies.DelayedForkGraphRootVertex
-import org.usvm.machine.ps.strategies.DelayedForkGraphVertex
-import org.usvm.machine.ps.strategies.DelayedForkState
-import org.usvm.machine.ps.strategies.DelayedForkStrategy
-import org.usvm.machine.ps.strategies.MakeDelayedFork
-import org.usvm.machine.ps.strategies.Peek
-import org.usvm.machine.ps.strategies.PyPathSelectorActionStrategy
+import org.usvm.machine.ps.strategies.*
 import org.usvm.machine.ps.types.makeTypeRating
 import org.usvm.machine.results.observers.NewStateObserver
 import org.usvm.machine.types.MockType
@@ -105,6 +96,7 @@ class PyVirtualPathSelector(
                     peekCache = null
                     break
                 }
+
                 is Peek -> {
                     val ps = action.pathSelector
                     require(!ps.isEmpty()) {
@@ -113,6 +105,7 @@ class PyVirtualPathSelector(
                     peekCache = ps.peek().also { it.extractedFrom = ps }
                     break
                 }
+
                 is MakeDelayedFork -> {
                     require(!action.vertex.delayedForkState.isDead) {
                         "Cannot make delayed fork from dead state"
@@ -133,41 +126,42 @@ class PyVirtualPathSelector(
         return peekCache
     }
 
-    private fun generateStateWithConcreteType(delayedFork: DelayedFork, delayedForkState: DelayedForkState): PyState? = with(
-        ctx
-    ) {
-        val typeRating = delayedForkStrategy.chooseTypeRating(delayedForkState)
-        while (typeRating.types.isNotEmpty() && typeRating.types.first() in delayedForkState.usedTypes) {
-            typeRating.types.removeAt(0)
+    private fun generateStateWithConcreteType(delayedFork: DelayedFork, delayedForkState: DelayedForkState): PyState? =
+        with(
+            ctx
+        ) {
+            val typeRating = delayedForkStrategy.chooseTypeRating(delayedForkState)
+            while (typeRating.types.isNotEmpty() && typeRating.types.first() in delayedForkState.usedTypes) {
+                typeRating.types.removeAt(0)
+                typeRating.numberOfUsed++
+            }
+            if (typeRating.types.isEmpty()) {
+                delayedForkState.isDead = true
+                return null
+            }
+            val type = typeRating.types.removeAt(0)
             typeRating.numberOfUsed++
+            delayedForkState.usedTypes.add(type)
+            val state = delayedFork.state
+            val symbol = delayedFork.symbol
+            logger.debug { "Delayed fork on ${symbol.address}" }
+            logger.debug { "Chosen type: $type" }
+            val forkResult = fork(state, symbol.evalIs(ctx, state.pathConstraints.typeConstraints, type).not())
+            if (forkResult.positiveState != state) {
+                require(typeRating.types.isEmpty())
+                delayedForkState.isDead = true
+                return null
+            }
+            val result = forkResult.negativeState ?: return null
+            result.models = listOf(
+                result.models.first().toPyModel(ctx, GenerateNewFromPathConstraints(result.pathConstraints))
+            )
+            newStateObserver.onNewState(result)
+            require(result.delayedForks == delayedFork.delayedForkPrefix)
+            result.generatedFrom = "from delayed fork"
+            delayedForkState.successfulTypes.add(type)
+            return result
         }
-        if (typeRating.types.isEmpty()) {
-            delayedForkState.isDead = true
-            return null
-        }
-        val type = typeRating.types.removeAt(0)
-        typeRating.numberOfUsed++
-        delayedForkState.usedTypes.add(type)
-        val state = delayedFork.state
-        val symbol = delayedFork.symbol
-        logger.debug { "Delayed fork on ${symbol.address}" }
-        logger.debug { "Chosen type: $type" }
-        val forkResult = fork(state, symbol.evalIs(ctx, state.pathConstraints.typeConstraints, type).not())
-        if (forkResult.positiveState != state) {
-            require(typeRating.types.isEmpty())
-            delayedForkState.isDead = true
-            return null
-        }
-        val result = forkResult.negativeState ?: return null
-        result.models = listOf(
-            result.models.first().toPyModel(ctx, GenerateNewFromPathConstraints(result.pathConstraints))
-        )
-        newStateObserver.onNewState(result)
-        require(result.delayedForks == delayedFork.delayedForkPrefix)
-        result.generatedFrom = "from delayed fork"
-        delayedForkState.successfulTypes.add(type)
-        return result
-    }
 
     private fun generateStateWithConcreteTypeWithoutDelayedFork(state: PyState): PyState? {
         val objectsWithoutConcreteTypes = state.objectsWithoutConcreteTypes
